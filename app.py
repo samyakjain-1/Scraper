@@ -39,7 +39,7 @@ HTML_TEMPLATE = """
 </html>
 """
 
-def search_serpapi(query, max_results=5):
+def search_serpapi(query, max_results=10):
     api_key = os.getenv("SERPAPI_KEY")
     params = {
         "engine": "google",
@@ -50,7 +50,6 @@ def search_serpapi(query, max_results=5):
     url = "https://serpapi.com/search"
     res = requests.get(url, params=params)
     if res.status_code != 200:
-        print("❌ SerpAPI error:", res.status_code, res.text)
         return []
     data = res.json()
     links = []
@@ -82,7 +81,6 @@ def fetch_reddit_post_data(url):
             json.dump(result, f)
         return result
     except Exception as e:
-        print(f"❌ Reddit API error: {e}")
         return {"title": "", "body": "", "comments": [], "url": url}
 
 def build_prompt(title, body, comments):
@@ -113,6 +111,24 @@ def summarize_with_groq(prompt):
     except Exception as e:
         return f"❌ Groq exception: {e}"
 
+def rerank_posts_with_groq(posts, class_query):
+    prompt = (
+        f"You're helping a student decide whether to take the course {class_query}.\n"
+        f"Below are Reddit posts about this course. Select and rank the 3 most useful ones based on relevance, clarity, and insight.\n"
+        f"Return a list of URLs and brief reasons for each.\n\n"
+    )
+    for i, p in enumerate(posts):
+        prompt += f"[{i+1}] Title: {p['title']}\nPost: {p['body'][:500]}\nURL: {p['url']}\n\n"
+
+    response = summarize_with_groq(prompt)
+    top_urls = []
+    for p in posts:
+        if p['url'] in response:
+            top_urls.append(p['url'])
+        if len(top_urls) == 3:
+            break
+    return top_urls
+
 @app.route('/', methods=['GET', 'POST'])
 def index():
     results = []
@@ -125,7 +141,10 @@ def index():
         with concurrent.futures.ThreadPoolExecutor() as executor:
             fetched_data = list(executor.map(fetch_reddit_post_data, links))
 
-        for data in fetched_data:
+        top_urls = rerank_posts_with_groq(fetched_data, class_query)
+        top_posts = [p for p in fetched_data if p['url'] in top_urls]
+
+        for data in top_posts:
             title = data['title']
             body = data['body']
             comments = data['comments']
@@ -135,7 +154,7 @@ def index():
                 summary = summarize_with_groq(prompt)
                 html_summary = markdown.markdown(summary)
                 results.append({"title": title, "summary": html_summary, "url": url})
-                time.sleep(1.5)  # to avoid hitting rate limits for Groq
+                time.sleep(1.5)
     return render_template_string(HTML_TEMPLATE, results=results, query=query)
 
 if __name__ == '__main__':
