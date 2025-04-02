@@ -128,29 +128,30 @@ def search_serpapi(query, max_results=10):
 
 
 
-def fetch_reddit_json(url):
+def fetch_reddit_html(url):
     headers = {'User-Agent': 'Mozilla/5.0'}
     try:
-        response = requests.get(url + ".json", headers=headers)
-        print(f"📥 Fetching JSON: {url}.json | Status: {response.status_code}")
+        response = requests.get(url, headers=headers)
+        print(f"📥 Fetching HTML: {url} | Status: {response.status_code}")
         sys.stdout.flush()
         if response.status_code == 200:
-            return response.json()
-        else:
-            print("❌ Reddit .json fetch failed")
-    except Exception as e:
-        print(f"❌ Exception fetching Reddit post: {e}")
-        sys.stdout.flush()
-    return None
+            soup = BeautifulSoup(response.text, 'html.parser')
+            title = soup.find('h1')
+            body = soup.find('div', {'data-test-id': 'post-content'})
+            comments = soup.find_all('div', {'data-test-id': 'comment'})
 
-def extract_post_content(json_data):
-    try:
-        post = json_data[0]['data']['children'][0]['data']
-        comments = json_data[1]['data']['children']
-        top_comments = [c['data']['body'] for c in comments if c['kind'] == 't1']
-        return post.get('title', ''), post.get('selftext', ''), top_comments[:5]
-    except:
-        return '', '', []
+            post_title = title.text.strip() if title else "(No title)"
+            post_body = body.text.strip() if body else "(No body)"
+            top_comments = [c.text.strip() for c in comments[:5]]
+            return post_title, post_body, top_comments
+        else:
+            print("❌ Reddit HTML fetch failed")
+    except Exception as e:
+        print(f"❌ Exception fetching Reddit HTML: {e}")
+        sys.stdout.flush()
+    return '', '', []
+
+
 
 def build_prompt(title, body, comments):
     content = f"Reddit Post Title: {title}\n\nPost Body:\n{body}\n\nTop Comments:\n"
@@ -163,7 +164,7 @@ def summarize_with_groq(prompt):
     if not api_key:
         print("❌ GROQ_API_KEY is missing!")
         return "❌ GROQ_API_KEY not set."
-    
+
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
@@ -173,7 +174,6 @@ def summarize_with_groq(prompt):
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.7
     }
-
     try:
         res = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=data)
         if res.status_code == 200:
@@ -197,19 +197,26 @@ def index():
     if request.method == 'POST':
         class_query = request.form['query']
         query = f"site:reddit.com/r/UWMadison {class_query}"
-        links = search_serpapi(f"site:reddit.com/r/UWMadison {class_query}")
-        print(f"🔎 Searching for: {class_query}")
+
+        links = search_serpapi(query)
+        print("🔎 Searching for:", class_query)
         print("✅ Reddit links received:", links)
         sys.stdout.flush()
+
         for url in links:
-            data = fetch_reddit_json(url)
-            if data:
-                title, body, comments = extract_post_content(data)
+            title, body, comments = fetch_reddit_html(url)
+            if title:
                 prompt = build_prompt(title, body, comments)
+                print(f"🧠 Prompt for {title[:50]}...")
+                sys.stdout.flush()
+
                 summary = summarize_with_groq(prompt)
                 html_summary = markdown.markdown(summary)
                 results.append({"title": title, "summary": html_summary, "url": url})
                 time.sleep(1.5)
+            else:
+                print(f"⚠️ Skipped post due to missing HTML: {url}")
+                sys.stdout.flush()
     return render_template_string(HTML_TEMPLATE, results=results, query=query)
 
 if __name__ == '__main__':
