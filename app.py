@@ -129,9 +129,20 @@ def search_serpapi(query, max_results=10):
 
 
 def fetch_reddit_html(url):
-    headers = {'User-Agent': 'Mozilla/5.0'}
+    headers = {
+        'User-Agent': (
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+            'AppleWebKit/537.36 (KHTML, like Gecko) '
+            'Chrome/122.0.0.0 Safari/537.36'
+        ),
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Referer': 'https://www.google.com/',
+        'DNT': '1',
+        'Connection': 'keep-alive',
+    }
     try:
-        response = requests.get(url, headers=headers)
+        response = requests.get(url, headers=headers, timeout=10)
         print(f"📥 Fetching HTML: {url} | Status: {response.status_code}")
         sys.stdout.flush()
         if response.status_code == 200:
@@ -150,7 +161,6 @@ def fetch_reddit_html(url):
         print(f"❌ Exception fetching Reddit HTML: {e}")
         sys.stdout.flush()
     return '', '', []
-
 
 
 def build_prompt(title, body, comments):
