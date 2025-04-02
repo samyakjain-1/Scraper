@@ -131,11 +131,16 @@ def search_serpapi(query, max_results=10):
 def fetch_reddit_json(url):
     headers = {'User-Agent': 'Mozilla/5.0'}
     try:
-        resp = requests.get(url + ".json", headers=headers)
-        if resp.status_code == 200:
-            return resp.json()
-    except:
-        pass
+        response = requests.get(url + ".json", headers=headers)
+        print(f"📥 Fetching JSON: {url}.json | Status: {response.status_code}")
+        sys.stdout.flush()
+        if response.status_code == 200:
+            return response.json()
+        else:
+            print("❌ Reddit .json fetch failed")
+    except Exception as e:
+        print(f"❌ Exception fetching Reddit post: {e}")
+        sys.stdout.flush()
     return None
 
 def extract_post_content(json_data):
