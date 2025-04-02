@@ -18,68 +18,53 @@ HTML_TEMPLATE = """
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Reddit Class Summary Tool</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         body {
-            font-family: 'Inter', sans-serif;
-            background-color: #f0f2f5;
-            padding: 40px;
-            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background-color: #f9fafb;
+            padding: 2rem;
+            max-width: 900px;
+            margin: auto;
+            color: #111;
         }
         h1 {
-            text-align: center;
-            font-weight: 700;
-            font-size: 2.5rem;
-            color: #333;
+            font-size: 2rem;
+            margin-bottom: 1rem;
         }
-        form {
-            max-width: 600px;
-            margin: 20px auto;
-            display: flex;
-            gap: 10px;
-        }
-        input[type="text"] {
-            flex: 1;
-            padding: 12px;
+        input[type=text] {
+            padding: 0.5rem;
+            width: 60%;
             font-size: 1rem;
-            border: 1px solid #ccc;
-            border-radius: 8px;
+            margin-right: 0.5rem;
         }
         button {
+            padding: 0.5rem 1rem;
+            font-size: 1rem;
             background-color: #4f46e5;
             color: white;
-            padding: 12px 20px;
             border: none;
-            border-radius: 8px;
-            font-size: 1rem;
-            cursor: pointer;
-        }
-        button:hover {
-            background-color: #4338ca;
-        }
-        .results {
-            max-width: 800px;
-            margin: 40px auto;
+            border-radius: 4px;
         }
         .post {
-            background-color: #ffffff;
-            padding: 20px;
-            border-radius: 12px;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
-            margin-bottom: 30px;
+            background: white;
+            border: 1px solid #e5e7eb;
+            padding: 1rem;
+            margin-top: 1rem;
+            border-radius: 8px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
         }
         .post h3 {
             margin-top: 0;
+            font-size: 1.1rem;
             color: #1f2937;
         }
-        .url a {
-            text-decoration: none;
-            color: #4f46e5;
+        .post .url a {
+            font-size: 0.9rem;
+            color: #3b82f6;
         }
-        .url a:hover {
-            text-decoration: underline;
+        .summary {
+            margin-top: 0.5rem;
         }
     </style>
 </head>
@@ -90,12 +75,18 @@ HTML_TEMPLATE = """
         <button type="submit">Search & Summarize</button>
     </form>
     <div class="results">
+        {% if main_summary %}
+            <h2>🧠 Main Insights from Reddit about {{ query }}</h2>
+            <div class="post">
+                <div class="summary">{{ main_summary|safe }}</div>
+            </div>
+        {% endif %}
         {% if results %}
-            <h2>Results for "{{ query }}"</h2>
+            <h2>🔍 Per-post Summaries</h2>
             {% for r in results %}
                 <div class="post">
                     <h3>{{ r.title }}</h3>
-                    <div>{{ r.summary|safe }}</div>
+                    <div class="summary">{{ r.summary|safe }}</div>
                     <p class="url">🔗 <a href="{{ r.url }}" target="_blank">Original Post</a></p>
                 </div>
             {% endfor %}
@@ -195,10 +186,23 @@ def rerank_posts_with_groq(posts, class_query):
             break
     return top_urls
 
+def generate_overall_summary(posts, class_query):
+    mega_prompt = (
+        f"You're summarizing opinions from Reddit about the course {class_query}.\n"
+        f"Give 5–7 main takeaways. Include key advice, typical struggles, and recommended professors.\n\n"
+    )
+    for p in posts:
+        mega_prompt += f"Title: {p['title']}\nBody: {p['body'][:500]}\nComments:\n"
+        for c in p['comments'][:3]:
+            mega_prompt += f"- {c}\n"
+        mega_prompt += "\n"
+    return summarize_with_groq(mega_prompt)
+
 @app.route('/', methods=['GET', 'POST'])
 def index():
     results = []
     query = ""
+    main_summary = ""
     if request.method == 'POST':
         class_query = request.form['query']
         query = f"site:reddit.com/r/UWMadison {class_query}"
@@ -206,6 +210,9 @@ def index():
 
         with concurrent.futures.ThreadPoolExecutor() as executor:
             fetched_data = list(executor.map(fetch_reddit_post_data, links))
+
+        main_summary_raw = generate_overall_summary(fetched_data, class_query)
+        main_summary = markdown.markdown(main_summary_raw)
 
         top_urls = rerank_posts_with_groq(fetched_data, class_query)
         top_posts = [p for p in fetched_data if p['url'] in top_urls]
@@ -221,7 +228,7 @@ def index():
                 html_summary = markdown.markdown(summary)
                 results.append({"title": title, "summary": html_summary, "url": url})
                 time.sleep(1.5)
-    return render_template_string(HTML_TEMPLATE, results=results, query=query)
+    return render_template_string(HTML_TEMPLATE, results=results, query=query, main_summary=main_summary)
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
