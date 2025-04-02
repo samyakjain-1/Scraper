@@ -5,6 +5,7 @@ import os
 import time
 import markdown
 import sys
+import praw
 
 app = Flask(__name__)
 
@@ -13,7 +14,9 @@ HTML_TEMPLATE = """
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Reddit Class Summary</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reddit Class Summary Tool</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         body {
             font-family: 'Inter', sans-serif;
@@ -82,22 +85,23 @@ HTML_TEMPLATE = """
         <input type="text" name="query" placeholder="Enter course code, e.g. CS577" required>
         <button type="submit">Search & Summarize</button>
     </form>
-    {% if results %}
-        <h2>Results for "{{ query }}"</h2>
-        {% for r in results %}
-            <div class="post">
-                <h3>{{ r.title }}</h3>
-                <div>{{ r.summary|safe }}</div>
-                <p class="url">🔗 <a href="{{ r.url }}" target="_blank">Original Post</a></p>
-            </div>
-        {% endfor %}
-    {% endif %}
+    <div class="results">
+        {% if results %}
+            <h2>Results for "{{ query }}"</h2>
+            {% for r in results %}
+                <div class="post">
+                    <h3>{{ r.title }}</h3>
+                    <div>{{ r.summary|safe }}</div>
+                    <p class="url">🔗 <a href="{{ r.url }}" target="_blank">Original Post</a></p>
+                </div>
+            {% endfor %}
+        {% endif %}
+    </div>
 </body>
 </html>
 """
 
 def search_serpapi(query, max_results=10):
-    import os
     api_key = os.getenv("SERPAPI_KEY")
     params = {
         "engine": "google",
@@ -122,46 +126,27 @@ def search_serpapi(query, max_results=10):
     print("✅ SerpAPI returned the following Reddit links:")
     for l in links:
         print(" -", l)
-    sys.stdout.flush()  # <--- Add this here
+    sys.stdout.flush()
 
     return links[:max_results]
 
+def fetch_reddit_post_data(post_url):
+    reddit = praw.Reddit(
+        client_id=os.getenv("REDDIT_CLIENT_ID"),
+        client_secret=os.getenv("REDDIT_CLIENT_SECRET"),
+        user_agent=os.getenv("REDDIT_USER_AGENT")
+    )
 
-
-def fetch_reddit_html(url):
-    headers = {
-        'User-Agent': (
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-            'AppleWebKit/537.36 (KHTML, like Gecko) '
-            'Chrome/122.0.0.0 Safari/537.36'
-        ),
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Referer': 'https://www.google.com/',
-        'DNT': '1',
-        'Connection': 'keep-alive',
-    }
     try:
-        response = requests.get(url, headers=headers, timeout=10)
-        print(f"📥 Fetching HTML: {url} | Status: {response.status_code}")
-        sys.stdout.flush()
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.text, 'html.parser')
-            title = soup.find('h1')
-            body = soup.find('div', {'data-test-id': 'post-content'})
-            comments = soup.find_all('div', {'data-test-id': 'comment'})
-
-            post_title = title.text.strip() if title else "(No title)"
-            post_body = body.text.strip() if body else "(No body)"
-            top_comments = [c.text.strip() for c in comments[:5]]
-            return post_title, post_body, top_comments
-        else:
-            print("❌ Reddit HTML fetch failed")
+        submission = reddit.submission(url=post_url)
+        title = submission.title
+        body = submission.selftext
+        submission.comments.replace_more(limit=0)
+        comments = [comment.body for comment in submission.comments[:5]]
+        return title, body, comments
     except Exception as e:
-        print(f"❌ Exception fetching Reddit HTML: {e}")
-        sys.stdout.flush()
-    return '', '', []
-
+        print(f"❌ Error fetching post via PRAW: {e}")
+        return '', '', []
 
 def build_prompt(title, body, comments):
     content = f"Reddit Post Title: {title}\n\nPost Body:\n{body}\n\nTop Comments:\n"
@@ -214,7 +199,7 @@ def index():
         sys.stdout.flush()
 
         for url in links:
-            title, body, comments = fetch_reddit_html(url)
+            title, body, comments = fetch_reddit_post_data(url)
             if title:
                 prompt = build_prompt(title, body, comments)
                 print(f"🧠 Prompt for {title[:50]}...")
@@ -225,11 +210,10 @@ def index():
                 results.append({"title": title, "summary": html_summary, "url": url})
                 time.sleep(1.5)
             else:
-                print(f"⚠️ Skipped post due to missing HTML: {url}")
+                print(f"⚠️ Skipped post: {url}")
                 sys.stdout.flush()
     return render_template_string(HTML_TEMPLATE, results=results, query=query)
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-
