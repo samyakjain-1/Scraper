@@ -5,6 +5,8 @@ import time
 import markdown
 import sys
 import praw
+import asyncio
+import httpx
 import concurrent.futures
 import hashlib
 import json
@@ -66,14 +68,26 @@ HTML_TEMPLATE = """
         .summary {
             margin-top: 0.5rem;
         }
+        #loading {
+            display: none;
+            margin-top: 1rem;
+            font-size: 1rem;
+            color: #4b5563;
+        }
     </style>
+    <script>
+        function showLoading() {
+            document.getElementById('loading').style.display = 'block';
+        }
+    </script>
 </head>
 <body>
     <h1>Reddit Class Summary Tool</h1>
-    <form method="post">
+    <form method="post" onsubmit="showLoading()">
         <input type="text" name="query" placeholder="Enter course code, e.g. CS577" required>
         <button type="submit">Search & Summarize</button>
     </form>
+    <div id="loading">🔄 Loading and summarizing Reddit posts, please wait...</div>
     <div class="results">
         {% if main_summary %}
             <h2>🧠 Main Insights from Reddit about {{ query }}</h2>
@@ -96,7 +110,23 @@ HTML_TEMPLATE = """
 </html>
 """
 
-def search_serpapi(query, max_results=10):
+MODEL_POOL = [
+    "gemma2-9b-it",
+    "llama-3.1-8b-instant",
+    "llama-3.2-1b-preview",
+    "llama-3.2-3b-preview",
+    "llama-3.3-70b-versatile"  # fallback model
+]
+
+model_index = 0
+
+def get_next_model():
+    global model_index
+    model = MODEL_POOL[model_index % len(MODEL_POOL)]
+    model_index += 1
+    return model
+
+def search_serpapi(query, max_results=20):
     api_key = os.getenv("SERPAPI_KEY")
     params = {
         "engine": "google",
@@ -146,27 +176,29 @@ def build_prompt(title, body, comments):
         content += f"{i+1}. {c}\n"
     return ("Summarize the following Reddit discussion. Highlight advice, experience, or consensus about the course:\n\n" + content)
 
-def summarize_with_groq(prompt):
+async def summarize_with_groq_async(prompt, model):
     api_key = os.getenv("GROQ_API_KEY")
-    if not api_key:
-        return "❌ GROQ_API_KEY not set."
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
     }
     data = {
-        "model": "gemma2-9b-it",
+        "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.7
     }
-    try:
-        res = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=data)
-        if res.status_code == 200:
-            return res.json()['choices'][0]['message']['content']
-        else:
-            return "❌ Groq API error."
-    except Exception as e:
-        return f"❌ Groq exception: {e}"
+    async with httpx.AsyncClient() as client:
+        try:
+            res = await client.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=data)
+            if res.status_code == 200:
+                return res.json()['choices'][0]['message']['content']
+            else:
+                return "❌ Groq API error."
+        except Exception as e:
+            return f"❌ Groq exception: {e}"
+
+def summarize_with_groq(prompt, model="llama-3.3-70b-versatile"):
+    return asyncio.run(summarize_with_groq_async(prompt, model))
 
 def rerank_posts_with_groq(posts, class_query):
     prompt = (
@@ -217,17 +249,22 @@ def index():
         top_urls = rerank_posts_with_groq(fetched_data, class_query)
         top_posts = [p for p in fetched_data if p['url'] in top_urls]
 
-        for data in top_posts:
-            title = data['title']
-            body = data['body']
-            comments = data['comments']
-            url = data['url']
-            if title:
-                prompt = build_prompt(title, body, comments)
-                summary = summarize_with_groq(prompt)
-                html_summary = markdown.markdown(summary)
-                results.append({"title": title, "summary": html_summary, "url": url})
-                time.sleep(1.5)
+        async def summarize_all():
+            coroutines = []
+            for post in top_posts:
+                prompt = build_prompt(post['title'], post['body'], post['comments'])
+                model = get_next_model()
+                coroutines.append(summarize_with_groq_async(prompt, model))
+            return await asyncio.gather(*coroutines)
+
+        summaries = asyncio.run(summarize_all())
+
+        for i, data in enumerate(top_posts):
+            results.append({
+                "title": data['title'],
+                "summary": markdown.markdown(summaries[i]),
+                "url": data['url']
+            })
     return render_template_string(HTML_TEMPLATE, results=results, query=query, main_summary=main_summary)
 
 if __name__ == '__main__':
