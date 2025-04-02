@@ -101,7 +101,7 @@ HTML_TEMPLATE = """
 </html>
 """
 
-def search_serpapi(query, max_results=10):
+def search_serpapi(query, max_results=20):
     api_key = os.getenv("SERPAPI_KEY")
     params = {
         "engine": "google",
