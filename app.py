@@ -16,7 +16,73 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
-<head>...</head>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reddit Class Summary Tool</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f2f5;
+            padding: 40px;
+            margin: 0;
+        }
+        h1 {
+            text-align: center;
+            font-weight: 700;
+            font-size: 2.5rem;
+            color: #333;
+        }
+        form {
+            max-width: 600px;
+            margin: 20px auto;
+            display: flex;
+            gap: 10px;
+        }
+        input[type="text"] {
+            flex: 1;
+            padding: 12px;
+            font-size: 1rem;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+        }
+        button {
+            background-color: #4f46e5;
+            color: white;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #4338ca;
+        }
+        .results {
+            max-width: 800px;
+            margin: 40px auto;
+        }
+        .post {
+            background-color: #ffffff;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+            margin-bottom: 30px;
+        }
+        .post h3 {
+            margin-top: 0;
+            color: #1f2937;
+        }
+        .url a {
+            text-decoration: none;
+            color: #4f46e5;
+        }
+        .url a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
 <body>
     <h1>Reddit Class Summary Tool</h1>
     <form method="post">
