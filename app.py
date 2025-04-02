@@ -4,6 +4,7 @@ from bs4 import BeautifulSoup
 import os
 import time
 import markdown
+import sys
 
 app = Flask(__name__)
 
@@ -121,8 +122,10 @@ def search_serpapi(query, max_results=10):
     print("✅ SerpAPI returned the following Reddit links:")
     for l in links:
         print(" -", l)
+    sys.stdout.flush()  # <--- Add this here
 
     return links[:max_results]
+
 
 
 def fetch_reddit_json(url):
@@ -180,6 +183,9 @@ def index():
         class_query = request.form['query']
         query = f"site:reddit.com/r/UWMadison {class_query}"
         links = search_serpapi(f"site:reddit.com/r/UWMadison {class_query}")
+        print(f"🔎 Searching for: {class_query}")
+        print("✅ Reddit links received:", links)
+        sys.stdout.flush()
         for url in links:
             data = fetch_reddit_json(url)
             if data:
