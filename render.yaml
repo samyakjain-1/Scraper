@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: reddit-summary
+    runtime: python
+    buildCommand: ""
+    startCommand: python app.py
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+      - key: SERPAPI_KEY
+        sync: false
