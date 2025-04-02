@@ -156,24 +156,34 @@ def build_prompt(title, body, comments):
 def summarize_with_groq(prompt):
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
-        return "❌ GROQ_API_KEY is not set."
-
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        print("❌ GROQ_API_KEY is missing!")
+        return "❌ GROQ_API_KEY not set."
+    
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
     data = {
         "model": "gemma2-9b-it",
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.7
     }
+
     try:
         res = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=data)
         if res.status_code == 200:
-            return res.json()['choices'][0]['message']['content']
+            summary = res.json()['choices'][0]['message']['content']
+            print("✅ Summary received.")
+            sys.stdout.flush()
+            return summary
         else:
-            print(f"[Groq API ERROR] Status: {res.status_code}, Response: {res.text}")
-            return f"❌ Groq API error {res.status_code}"
+            print("❌ Groq API error:", res.status_code, res.text)
+            sys.stdout.flush()
+            return "❌ Groq API error."
     except Exception as e:
-        print(f"[Groq API Exception] {e}")
-        return f"❌ Exception occurred: {e}"
+        print("❌ Exception during Groq summary:", e)
+        sys.stdout.flush()
+        return "❌ Exception occurred."
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
